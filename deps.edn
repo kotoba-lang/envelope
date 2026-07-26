@@ -1,0 +1,9 @@
+{:paths ["src"]
+ ;; envelope.seal is ClojureScript (Web Crypto has no synchronous API), so
+ ;; the JVM classpath here covers envelope.model only — the pure half. The
+ ;; CLJS half is consumed by source path (shadow-cljs :source-paths, or nbb
+ ;; --classpath), the way every other cljs sibling in this workspace is.
+ :aliases {:test {:extra-paths ["test"]
+                  :extra-deps {io.github.cognitect-labs/test-runner
+                               {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                  :main-opts ["-m" "cognitect.test-runner"]}}}
