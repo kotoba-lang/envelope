@@ -197,3 +197,46 @@
         s (seal/b64url bytes)]
     (is (not (re-find #"[+/=]" s)) "a link secret has to survive a URL fragment")
     (is (= (vec (array-seq bytes)) (vec (array-seq (seal/unb64url s)))))))
+
+(deftest wrap-bytes-is-the-one-ecies-construction-and-its-aad-is-load-bearing
+  ;; wrap-for and custody's share wrap are the same primitive with different
+  ;; AAD. This tests the primitive directly, because the property that makes
+  ;; sharing one implementation safe is that the AAD — not the call site —
+  ;; is what stops a wrap from being transplanted.
+  (async done
+    (let [alice (recipient)
+          bob (recipient)
+          secret (js/Uint8Array.from #js [1 2 3 4 5 6 7 8])
+          aad "kotoba/custody/share|1|deal:a|0|sec:a|did:key:c1|1"]
+      (-> (seal/wrap-bytes secret (:pub alice) aad)
+          (.then (fn [w]
+                   (testing "the wrap carries no plaintext"
+                     (is (not= (seal/b64url secret) (:wrap/wrapped w))))
+                   (-> (seal/unwrap-bytes w (:priv alice) aad)
+                       (.then (fn [opened]
+                                (is (= (vec (array-seq secret)) (vec (array-seq opened))))))
+                       (.then (fn [_]
+                                (js/Promise.all
+                                 #js [(fails (seal/unwrap-bytes w (:priv alice)
+                                                                (str aad "x")))
+                                      (fails (seal/unwrap-bytes w (:priv bob) aad))])))
+                       (.then (fn [[wrong-aad wrong-key]]
+                                (testing "a wrap sealed under one AAD does not open under another —
+                                          this is what binds a share to its deal, epoch and custodian"
+                                  (is (true? wrong-aad)))
+                                (testing "and the wrong holder cannot open it at all"
+                                  (is (true? wrong-key)))
+                                (done))))))
+          (.catch (fn [e] (is false (str e)) (done)))))))
+
+(deftest two-wraps-of-the-same-bytes-to-the-same-key-share-no-material
+  (async done
+    (let [alice (recipient)
+          secret (js/Uint8Array.from #js [9 9 9 9])]
+      (-> (js/Promise.all #js [(seal/wrap-bytes secret (:pub alice) "aad")
+                               (seal/wrap-bytes secret (:pub alice) "aad")])
+          (.then (fn [[a b]]
+                   (is (not= (:wrap/wrapped a) (:wrap/wrapped b)))
+                   (is (not= (:wrap/ephemeral-pub a) (:wrap/ephemeral-pub b)))
+                   (done)))
+          (.catch (fn [e] (is false (str e)) (done)))))))
