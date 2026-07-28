@@ -111,27 +111,57 @@
     (.set info recipient-pub (+ (.-length (utf8 wrap-info)) 32))
     (hkdf/hkdf nil shared info content-key-bytes)))
 
-(defn wrap-for
-  "Wrap `content-key` to one recipient's X25519 public key.
-  -> Promise<recipient entry>.
+(defn wrap-bytes
+  "Wrap arbitrary `plaintext` bytes to one X25519 public key under an
+  explicit `aad` string. -> Promise<wrap map>.
 
   Fresh ephemeral keypair per wrap (ECIES shape): the sender needs no
-  long-term key of their own, and two wraps of the same content key to the
-  same recipient share no key material."
-  [env {:keys [id pub kind]} ^js content-key]
+  long-term key of their own, and two wraps of the same plaintext to the
+  same public key share no key material.
+
+  AAD is a parameter rather than derived here because this is the wrap
+  primitive for the whole workspace, not just for envelopes. A content key
+  binds to `m/wrap-aad`; `kotoba-lang/custody` binds a Shamir share to its
+  deal, epoch and custodian instead. Both need the SAME ECIES construction
+  and neither should write a second X25519 to get it — which is the reason
+  this is one function taking an AAD and not two implementations."
+  [^js plaintext pub aad]
   (let [recipient-pub (if (string? pub) (unb64url pub) pub)
         {eph-priv :priv eph-pub :pub} (x25519/generate-keypair)
         shared (x25519/dh eph-priv recipient-pub)
         iv (random-bytes m/nonce-bytes)]
     (-> (wrap-key-from-dh shared eph-pub recipient-pub)
-        (.then (fn [wk] (gcm-encrypt wk iv content-key (utf8 (m/wrap-aad env id)))))
+        (.then (fn [wk] (gcm-encrypt wk iv plaintext (utf8 aad))))
         (.then (fn [wrapped]
-                 {:recipient/id id
-                  :recipient/kind (or kind :did)
-                  :recipient/pub (b64url recipient-pub)
-                  :recipient/ephemeral-pub (b64url eph-pub)
-                  :recipient/iv (b64url iv)
-                  :recipient/wrapped (b64url wrapped)})))))
+                 {:wrap/pub (b64url recipient-pub)
+                  :wrap/ephemeral-pub (b64url eph-pub)
+                  :wrap/iv (b64url iv)
+                  :wrap/wrapped (b64url wrapped)})))))
+
+(defn unwrap-bytes
+  "Inverse of `wrap-bytes`. -> Promise<Uint8Array>. Rejects if the wrap was
+  tampered with, or if `aad` is not byte-identical to the one it was sealed
+  under — which is what makes a wrap non-transplantable."
+  [{:keys [:wrap/pub :wrap/ephemeral-pub :wrap/iv :wrap/wrapped]} priv aad]
+  (let [priv (if (string? priv) (unb64url priv) priv)
+        eph-pub (unb64url ephemeral-pub)
+        shared (x25519/dh priv eph-pub)]
+    (-> (wrap-key-from-dh shared eph-pub (unb64url pub))
+        (.then (fn [wk] (gcm-decrypt wk (unb64url iv) (unb64url wrapped)
+                                     (utf8 aad)))))))
+
+(defn wrap-for
+  "Wrap `content-key` to one recipient's X25519 public key.
+  -> Promise<recipient entry>."
+  [env {:keys [id pub kind]} ^js content-key]
+  (-> (wrap-bytes content-key pub (m/wrap-aad env id))
+      (.then (fn [w]
+               {:recipient/id id
+                :recipient/kind (or kind :did)
+                :recipient/pub (:wrap/pub w)
+                :recipient/ephemeral-pub (:wrap/ephemeral-pub w)
+                :recipient/iv (:wrap/iv w)
+                :recipient/wrapped (:wrap/wrapped w)}))))
 
 (defn unwrap-with
   "Recover the content key from a recipient entry, given that recipient's
@@ -139,12 +169,12 @@
   tampered with or belongs to a different object or recipient."
   [env {:keys [:recipient/id :recipient/pub :recipient/ephemeral-pub
                :recipient/iv :recipient/wrapped]} priv]
-  (let [priv (if (string? priv) (unb64url priv) priv)
-        eph-pub (unb64url ephemeral-pub)
-        shared (x25519/dh priv eph-pub)]
-    (-> (wrap-key-from-dh shared eph-pub (unb64url pub))
-        (.then (fn [wk] (gcm-decrypt wk (unb64url iv) (unb64url wrapped)
-                                     (utf8 (m/wrap-aad env id))))))))
+  (unwrap-bytes {:wrap/pub pub
+                 :wrap/ephemeral-pub ephemeral-pub
+                 :wrap/iv iv
+                 :wrap/wrapped wrapped}
+                priv
+                (m/wrap-aad env id)))
 
 ;; ------------------------------------------------------------- sharing
 
