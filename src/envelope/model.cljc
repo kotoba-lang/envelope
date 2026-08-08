@@ -17,7 +17,7 @@
        :envelope/version     1
        :envelope/alg         :aes-256-gcm
        :envelope/kdf         :hkdf-sha256
-       :envelope/kem         :x25519
+       :envelope/kem         :x25519        ; or :x25519+ml-kem-768
        :envelope/chunk-bytes 4194304
        :envelope/chunks      3
        :envelope/nonce-epoch 0
@@ -26,7 +26,11 @@
                                :recipient/pub  \"base64url…\"  ; X25519 pub
                                :recipient/ephemeral-pub \"base64url…\"
                                :recipient/iv   \"base64url…\"
-                               :recipient/wrapped \"base64url…\"}]}
+                               :recipient/wrapped \"base64url…\"
+                               ;; hybrid recipients only (:x25519+ml-kem-768):
+                               :recipient/kem    :x25519+ml-kem-768
+                               :recipient/pq-pub \"base64url…\"  ; ML-KEM-768 pub
+                               :recipient/pq-ct  \"base64url…\"}]} ; 1088 B
 
   ADR-2607263000 D3/D4/D5."
   (:require [clojure.string :as str]))
@@ -45,7 +49,21 @@
    :envelope/nonce-epoch 0})
 
 (def supported-algs #{:aes-256-gcm})
-(def supported-kems #{:x25519})
+
+;; `:x25519` is the classical wrap this repo shipped with. `:x25519+ml-kem-768`
+;; is the hybrid added 2026-08-08 per superproject ADR-2608070400 D5: a wrap
+;; harvested today is decryptable by a future CRQC if X25519 is its only KEM,
+;; and the wrap holds the content key, so that is the whole object. Hybrid
+;; means an attacker must break BOTH — so it is never weaker than what it
+;; extends, which is the only reason to combine rather than swap.
+(def supported-kems #{:x25519 :x25519+ml-kem-768})
+
+(def hybrid-kem :x25519+ml-kem-768)
+
+(defn hybrid?
+  "True when this envelope's KEM includes the post-quantum half."
+  [env]
+  (= hybrid-kem (:envelope/kem env)))
 
 ;; ------------------------------------------------------------- construction
 
@@ -156,9 +174,27 @@
 (defn wrap-aad
   "AAD for a wrapped content key: binds the wrap to this object and this
   recipient, so a wrap harvested from one envelope cannot be pasted into
-  another to make it look like that recipient was granted access."
-  [{:keys [:envelope/id :envelope/version]} recipient-id]
-  (str/join "|" ["kotoba/envelope/wrap" version id recipient-id]))
+  another to make it look like that recipient was granted access.
+
+  **It also binds the KEM, and that is a downgrade defence.** Without it a
+  classical wrap and a hybrid wrap for the same (object, recipient) carry
+  byte-identical AAD, so the two are interchangeable as far as the AEAD is
+  concerned. An attacker who can make the hybrid path fail — a stripped
+  ML-KEM ciphertext, a client that falls back on error — could then have a
+  classical wrap accepted where a hybrid one was intended, and the
+  post-quantum half would be gone without anything refusing.
+
+  `:x25519` keeps the original string exactly. Adding the KEM to it would
+  have changed the AAD of every wrap already written, and AAD must match
+  byte-for-byte or the wrap stops opening. So the classical form is frozen
+  and only the hybrid form carries the suffix — which is enough, because
+  distinguishing the two is the whole requirement."
+  ([env recipient-id] (wrap-aad env recipient-id (:envelope/kem env)))
+  ([{:keys [:envelope/id :envelope/version]} recipient-id kem]
+   (let [base (str/join "|" ["kotoba/envelope/wrap" version id recipient-id])]
+     (if (= hybrid-kem kem)
+       (str base "|" (name hybrid-kem))
+       base))))
 
 ;; ------------------------------------------------------------- recipients
 

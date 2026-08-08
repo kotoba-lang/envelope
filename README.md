@@ -36,6 +36,12 @@ X25519 and HKDF come from **`kotoba-lang/org-signal`** (audited
 `@noble/curves`; Web Crypto HMAC). This repo does not reimplement them — a
 second X25519 in this workspace would be a second one to get wrong.
 
+`envelope.kem` adds the post-quantum half (`@noble/post-quantum`'s ML-KEM-768,
+FIPS 203) for the `:x25519+ml-kem-768` KEM. Its docstring records why it lives
+here rather than in `org-signal` (which implements X3DH, not PQXDH), and that
+consolidating the workspace's three thin ML-KEM bindings is an open
+opportunity.
+
 The split is not cosmetic: the rules that decide whether this is secure —
 nonce uniqueness, what the AEAD binds, what a revoke does *not* accomplish —
 all live in the pure half, so they are testable on every runtime this
@@ -68,6 +74,18 @@ are verified to agree byte-for-byte between the JVM and ClojureScript.
   to the origin; the envelope keeps only the public half. Revoking a link
   deletes its entry, and that works precisely because the link holder only
   ever had the link key, not the content key.
+- **A wrap can be post-quantum, and cannot be silently downgraded to one
+  that is not.** `:x25519` wraps the content key to X25519 alone, so a wrap
+  harvested today opens once a CRQC exists — and the wrap *is* the object's
+  confidentiality. `:x25519+ml-kem-768` derives the wrap key by HKDF over
+  **both** shared secrets, so an attacker has to break both; a hybrid is never
+  weaker than the classical construction it extends. The KEM is bound into the
+  wrap's AAD, so a classical wrap cannot be presented where a hybrid one was
+  intended, and `unwrap-with` reads the construction off the entry rather than
+  negotiating it — there is no fallback path, because a fallback is the
+  downgrade. Each hybrid recipient costs 1088 bytes (the ML-KEM ciphertext).
+  Tests cover a wrong X25519 half, a wrong ML-KEM half, and a substituted
+  encapsulation, each of which must fail on its own.
 - **Identical plaintext does not deduplicate.** The content key is fresh per
   object, so two seals of the same bytes are different ciphertext.
   ADR-2607263000 D4 chose that over convergent encryption, which would leak
@@ -92,7 +110,7 @@ npm install
 nbb --classpath "src:test:../org-signal/src" scripts/run-tests.cljs
 ```
 
-20 tests / 61 assertions, all against real Web Crypto and real X25519 — no
-fake ciphers. The negative cases (wrong key, flipped bit, reordered chunks,
+39 tests / 110 assertions, all against real Web Crypto, real X25519 and
+real ML-KEM-768 — no fake ciphers. The negative cases (wrong key, flipped bit, reordered chunks,
 truncation, relocated chunk, pasted wrap) are the point; the round trip is
 the easy part.

@@ -7,6 +7,7 @@
 ;; suite would otherwise exit 0 and pass CI.
 (ns run-tests
   (:require [cljs.test :as t]
+            [envelope.kem-test]
             [envelope.model-test]
             [envelope.projection-test]
             [envelope.seal-test]))
@@ -15,4 +16,4 @@
   (when-not (t/successful? m)
     (js/process.exit 1)))
 
-(t/run-tests 'envelope.model-test 'envelope.projection-test 'envelope.seal-test)
+(t/run-tests 'envelope.kem-test 'envelope.model-test 'envelope.projection-test 'envelope.seal-test)
