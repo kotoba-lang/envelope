@@ -15,6 +15,7 @@
 ;;       (.then (fn [{:keys [envelope chunks]}] …)))
 (ns envelope.seal
   (:require [envelope.model :as m]
+            [envelope.kem :as kem]
             [kotoba.signal.hkdf :as hkdf]
             [kotoba.signal.x25519 :as x25519]))
 
@@ -163,18 +164,75 @@
                 :recipient/iv (:wrap/iv w)
                 :recipient/wrapped (:wrap/wrapped w)}))))
 
+;; --------------------------------------------------- hybrid (post-quantum)
+;;
+;; Same envelope, same AEAD, same recipient entry shape — only the KEM that
+;; derives the wrap key changes, plus the ML-KEM ciphertext the recipient
+;; needs to decapsulate. Keeping the surface identical is deliberate: a
+;; caller upgrades by handing `wrap-for` a recipient that has `:pq-pub`, not
+;; by learning a second API.
+
+(defn wrap-for-hybrid
+  "Wrap `content-key` to a recipient that publishes BOTH an X25519 public key
+  and an ML-KEM-768 public key. -> Promise<recipient entry>.
+
+  The entry carries `:recipient/pq-ct` (1088 B) in addition to the classical
+  fields, and its AAD is the hybrid form — so it cannot be swapped for a
+  classical wrap of the same object and recipient."
+  [env {:keys [id pub pq-pub kind]} ^js content-key]
+  (let [recipient-pub (if (string? pub) (unb64url pub) pub)
+        recipient-pq (if (string? pq-pub) (unb64url pq-pub) pq-pub)
+        iv (random-bytes m/nonce-bytes)
+        aad (m/wrap-aad env id m/hybrid-kem)]
+    (-> (kem/encapsulate {:pub recipient-pub :pq-pub recipient-pq})
+        (.then (fn [{:keys [wrap-key ephemeral-pub pq-ct]}]
+                 (-> (gcm-encrypt wrap-key iv content-key (utf8 aad))
+                     (.then (fn [wrapped]
+                              {:recipient/id id
+                               :recipient/kind (or kind :did)
+                               :recipient/kem m/hybrid-kem
+                               :recipient/pub (b64url recipient-pub)
+                               :recipient/pq-pub (b64url recipient-pq)
+                               :recipient/ephemeral-pub (b64url ephemeral-pub)
+                               :recipient/pq-ct (b64url pq-ct)
+                               :recipient/iv (b64url iv)
+                               :recipient/wrapped (b64url wrapped)}))))))))
+
 (defn unwrap-with
   "Recover the content key from a recipient entry, given that recipient's
-  X25519 private key. -> Promise<Uint8Array(32)>. Rejects if the entry was
-  tampered with or belongs to a different object or recipient."
-  [env {:keys [:recipient/id :recipient/pub :recipient/ephemeral-pub
-               :recipient/iv :recipient/wrapped]} priv]
-  (unwrap-bytes {:wrap/pub pub
-                 :wrap/ephemeral-pub ephemeral-pub
-                 :wrap/iv iv
-                 :wrap/wrapped wrapped}
-                priv
-                (m/wrap-aad env id)))
+  private key(s). -> Promise<Uint8Array(32)>. Rejects if the entry was
+  tampered with or belongs to a different object or recipient.
+
+  `priv` is the X25519 private key. A hybrid entry additionally needs the
+  ML-KEM private key, passed as `pq-priv`.
+
+  **Which construction is used is read off the entry, not negotiated.** An
+  entry that declares the hybrid KEM is opened as hybrid or not at all —
+  there is no fallback to the classical path, because a fallback is exactly
+  the downgrade the hybrid AAD exists to prevent."
+  ([env entry priv] (unwrap-with env entry priv nil))
+  ([env {:keys [:recipient/id :recipient/pub :recipient/ephemeral-pub
+                :recipient/iv :recipient/wrapped :recipient/kem
+                :recipient/pq-ct]}
+    priv pq-priv]
+   (if (= m/hybrid-kem kem)
+     (do
+       (when (nil? pq-priv)
+         (throw (ex-info "hybrid recipient entry needs the ML-KEM private key"
+                         {:recipient/id id :recipient/kem kem})))
+       (-> (kem/decapsulate {:priv (if (string? priv) (unb64url priv) priv)
+                             :pq-priv pq-priv}
+                            {:ephemeral-pub (unb64url ephemeral-pub)
+                             :pq-ct (unb64url pq-ct)
+                             :recipient-pub (unb64url pub)})
+           (.then (fn [wk] (gcm-decrypt wk (unb64url iv) (unb64url wrapped)
+                                        (utf8 (m/wrap-aad env id m/hybrid-kem)))))))
+     (unwrap-bytes {:wrap/pub pub
+                    :wrap/ephemeral-pub ephemeral-pub
+                    :wrap/iv iv
+                    :wrap/wrapped wrapped}
+                   priv
+                   (m/wrap-aad env id :x25519)))))
 
 ;; ------------------------------------------------------------- sharing
 
