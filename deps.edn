@@ -1,8 +1,7 @@
 {:paths ["src"]
- ;; envelope.seal is ClojureScript (Web Crypto has no synchronous API), so
- ;; the JVM classpath here covers envelope.model only — the pure half. The
- ;; CLJS half is consumed by source path (shadow-cljs :source-paths, or nbb
- ;; --classpath), the way every other cljs sibling in this workspace is.
+ :deps {io.github.kotoba-lang/org-signal
+        {:git/url "https://github.com/kotoba-lang/org-signal.git"
+         :git/sha "511e4b47de5d17945aa02815725703e8eb52bdef"}}
  :aliases {:test {:extra-paths ["test"]
                   :extra-deps {io.github.cognitect-labs/test-runner
                                {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
