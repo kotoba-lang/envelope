@@ -198,6 +198,17 @@
     (is (not (re-find #"[+/=]" s)) "a link secret has to survive a URL fragment")
     (is (= (vec (array-seq bytes)) (vec (array-seq (seal/unb64url s)))))))
 
+(deftest browser-and-jvm-chunk-wire-format-is-identical
+  (async done
+    (let [env (m/envelope "drive:interop" {:chunks 1})
+          key (js/Uint8Array.from (clj->js (range 32)))]
+      (-> (seal/seal-chunk env key 0 (utf8 "kotoba interop"))
+          (.then (fn [ciphertext]
+                   (is (= "ZdPBsddNo9Rm3MxHd1wuyUwjQ4EYutao8uhPqTmW"
+                          (seal/b64url ciphertext)))
+                   (done)))
+          (.catch (fn [e] (is false (str e)) (done)))))))
+
 (deftest wrap-bytes-is-the-one-ecies-construction-and-its-aad-is-load-bearing
   ;; wrap-for and custody's share wrap are the same primitive with different
   ;; AAD. This tests the primitive directly, because the property that makes

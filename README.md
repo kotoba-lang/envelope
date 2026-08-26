@@ -26,11 +26,17 @@ the key; it never re-encrypts the object.**
 |---|---|---|
 | `envelope.model` | portable `.cljc` | the shape and every decision that needs no crypto: nonce derivation, AAD, recipients, revoke, link grants |
 | `envelope.seal` | ClojureScript, `Promise`-returning | the bytes: AES-256-GCM, X25519 + HKDF-SHA256 |
+| `envelope.seal-jvm` | JVM, synchronous `.cljc` | the identical wire format via JCA and `kotoba-lang/org-signal` |
 
 `seal` is `.cljs` rather than `.cljc` because Web Crypto has no synchronous
 API — the same reason `kotoba-lang/org-signal` keeps sibling JVM and CLJS
 ratchets instead of one reader-conditional file. It runs where the object
 actually is: a Cloudflare Worker and a browser.
+
+`seal-jvm` is the client backend for JVM desktop processes such as Cloud
+Itonami. It uses only the JDK crypto provider plus the workspace-owned
+`kotoba-lang/org-signal`; a fixed ciphertext vector is asserted in both test
+suites so either runtime changing nonce, AAD, UTF-8, or GCM tag layout fails.
 
 X25519 and HKDF come from **`kotoba-lang/org-signal`** (audited
 `@noble/curves`; Web Crypto HMAC). This repo does not reimplement them — a
