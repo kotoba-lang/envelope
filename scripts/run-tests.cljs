@@ -10,10 +10,11 @@
             [envelope.kem-test]
             [envelope.model-test]
             [envelope.projection-test]
-            [envelope.seal-test]))
+            [envelope.seal-test]
+            [envelope.passkey-test]))
 
 (defmethod t/report [::t/default :end-run-tests] [m]
   (when-not (t/successful? m)
     (js/process.exit 1)))
 
-(t/run-tests 'envelope.kem-test 'envelope.model-test 'envelope.projection-test 'envelope.seal-test)
+(t/run-tests 'envelope.kem-test 'envelope.model-test 'envelope.projection-test 'envelope.seal-test 'envelope.passkey-test)

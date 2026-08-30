@@ -151,6 +151,42 @@
         (.then (fn [wk] (gcm-decrypt wk (unb64url iv) (unb64url wrapped)
                                      (utf8 aad)))))))
 
+(def ^:private symmetric-wrap-info "kotoba/envelope/v1 symmetric-wrap")
+
+(defn wrap-under-key
+  "Wrap `plaintext` under a raw secret that both sides already hold, with an
+  explicit `aad` string. -> Promise<wrap map>.
+
+  The asymmetric sibling is `wrap-bytes`; this exists because not every
+  secret arrives as a public key. A passkey PRF output is the case that
+  forced it: the authenticator hands back the same 32 bytes for the same
+  (credential, salt) and nothing else, so there is no public key to encrypt
+  to — only a secret to derive a key-encryption key from.
+
+  The secret is passed through HKDF rather than used as an AES key
+  directly. A PRF output is uniform, but the next caller's secret may not
+  be, and `salt` binds this wrap to a context so the same secret used for
+  two purposes does not produce the same key."
+  [^js plaintext ^js secret ^js salt aad]
+  (let [iv (random-bytes m/nonce-bytes)]
+    (-> (hkdf/hkdf salt secret (utf8 symmetric-wrap-info) content-key-bytes)
+        (.then (fn [wk] (gcm-encrypt wk iv plaintext (utf8 aad))))
+        (.then (fn [wrapped]
+                 {:wrap/kind :symmetric
+                  :wrap/iv (b64url iv)
+                  :wrap/salt (when salt (b64url salt))
+                  :wrap/wrapped (b64url wrapped)})))))
+
+(defn unwrap-under-key
+  "Inverse of `wrap-under-key`. -> Promise<Uint8Array>. Rejects if the wrap
+  was tampered with, if the secret is not the one it was sealed under, or
+  if `aad` differs by a byte."
+  [{:keys [:wrap/iv :wrap/salt :wrap/wrapped]} ^js secret aad]
+  (-> (hkdf/hkdf (when salt (unb64url salt)) secret
+                 (utf8 symmetric-wrap-info) content-key-bytes)
+      (.then (fn [wk] (gcm-decrypt wk (unb64url iv) (unb64url wrapped)
+                                   (utf8 aad))))))
+
 (defn wrap-for
   "Wrap `content-key` to one recipient's X25519 public key.
   -> Promise<recipient entry>."
