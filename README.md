@@ -98,6 +98,47 @@ are verified to agree byte-for-byte between the JVM and ClojureScript.
   whether two users hold the same file. There is a test so the property is
   not lost by accident.
 
+## Opening an envelope with a passkey
+
+`envelope.passkey` turns a WebAuthn PRF output into a recipient.
+
+**A passkey cannot decrypt.** WebAuthn has no decrypt operation; a passkey
+signs. What it does have is the PRF extension, which returns the *same* 32
+bytes for the same (credential, salt) — and that secret is the only thing an
+authenticator will give you.
+
+So the identity is not derived from it. Deriving an X25519 key straight from the
+PRF output is shorter, and it welds that identity to one credential forever: lose
+the passkey and the key is gone, and you can neither add a second passkey nor
+rotate the first. Instead the identity is an ordinary random X25519 key, and the
+PRF output wraps it. `kotoba-lang/webauthn`'s `prf-envelope` already describes
+this shape with `:salt-ref` and `:wrapped-ref`.
+
+```clojure
+(require '[envelope.passkey :as pk] '[envelope.seal :as seal])
+
+(def id (pk/generate-identity))                    ; random X25519, the real key
+(pk/seal-identity id prf-output)                   ; -> Promise<wrap map>, store it
+(pk/open-identity wrap prf-output)                 ; -> Promise<priv>, rejects on the wrong passkey
+
+(seal/seal-object "obj-1" [bytes] [(pk/recipient did id)])
+```
+
+Two passkeys can wrap the same identity, and both open it — that is the property
+the wrapped design buys, and the test that says so is what separates it from the
+derived shortcut.
+
+The browser call is not here. `navigator.credentials.get` and the PRF extension
+belong to the host (`kotoba-lang/webauthn`'s `derive-prf!` port); this namespace
+takes bytes and returns recipients, so it runs unchanged wherever the rest of
+`envelope` does.
+
+`seal/wrap-under-key` and `seal/unwrap-under-key` are the symmetric siblings of
+`wrap-bytes`: not every secret arrives as a public key, and a PRF output is the
+case that forced them. Both pass the secret through HKDF with a salt rather than
+using it as an AES key directly, so one secret used for two purposes does not
+produce one key.
+
 ## Not in scope
 
 - **Filename and path metadata are not encrypted** by this library. Doing so
