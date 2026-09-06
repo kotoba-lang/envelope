@@ -207,6 +207,54 @@ forged wrap looks like too. The recipient's own public keys are not carried;
 they enter the KEM transcript instead, so the binding is cryptographic
 rather than a field to compare.
 
+## Where the recipient's own keys live — `envelope.keystore`
+
+A wrapped key delivered to a hybrid recipient opens only if BOTH secrets are
+present, so a store that holds one of them holds nothing usable.
+`envelope.passkey` already answers this for the classical half — the identity
+is an ordinary random X25519 key and a passkey's PRF output *wraps* it rather
+than becoming it, so the identity outlives any one credential.
+`envelope.keystore` is the same idea for a hybrid pair.
+
+```clojure
+(-> (keystore/generate-identity)
+    (.then #(keystore/seal-record % prf-output salt))
+    (.then store-it-somewhere))
+
+;; later, as the :keys! port of kotoba-lang/ayatori's disclosure opener
+(keystore/unlocker records prf-output)
+```
+
+What it stores is a **record**, not a key: public material, a status and two
+wraps, which is safe on a server that must not be able to read anything. The
+unlock secret is supplied per call and is never held.
+
+**The fingerprint is derived, not assigned.** A record's identity is its
+keys: `fingerprint` hashes the two public keys, and both wraps are sealed
+with that fingerprint in their AAD. Relabelling a record or editing its
+public material changes the AAD, so it stops opening — the binding between
+"who this is" and "what opens it" is cryptographic rather than a field
+somebody remembered to compare. A disclosure grant's `:recipient-key` should
+be this value: the protocol requires the issuer to bind the recipient's
+encryption-key fingerprint independently of anything the requester says, and
+a derived one is what both sides compute from the same bytes.
+
+Refusals, by name: an unknown record version, a `:key/status` that is
+anything other than `:active` (including one this code has never heard of —
+`kotoba.security.key-status` owns that vocabulary and the test iterates *its*
+set), a stored name that is not what the stored public keys hash to, a wrong
+unlock secret, and the two halves exchanged for one another. One consistency
+check survives the unwrap: FIPS 203 puts the encapsulation key inside the
+decapsulation key, so a recovered ML-KEM secret that does not match the
+record's `:pq-pub` is refused. There is no equivalent for the X25519 half
+without a scalar multiplication this repo does not expose, which is why the
+AAD carries the fingerprint of both.
+
+`unlocker` distinguishes absent from refused: an unknown fingerprint resolves
+to `nil`, a present-but-revoked record *rejects*. "There is no such
+recipient" and "that recipient's key is revoked" are different answers and
+arrive differently.
+
 ## Test
 
 ```sh
@@ -215,11 +263,24 @@ nbb --classpath "src:test:../org-signal/src:../security/src" \
     scripts/run-tests.cljs
 ```
 
-66 tests / 179 assertions (measured 2026-09-06), all against real Web
+78 tests / 203 assertions (measured 2026-09-06), all against real Web
 Crypto, real X25519 and real ML-KEM-768 — no fake ciphers. The negative
 cases (wrong key, flipped bit, reordered chunks, truncation, relocated
 chunk, pasted wrap, substituted encapsulation, wrong AAD, either KEM half
-alone) are the point; the round trip is the easy part.
+alone, revoked status, relabelled record) are the point; the round trip is
+the easy part.
+
+The runner has two floors, and the second was earned. Namespaces come from
+disk, because a list falls behind the suite and reports the subset as a
+pass. That is not enough: while `envelope.keystore-test` was being written,
+seven of its twelve `deftest` forms were swallowed into a preceding form by
+one unbalanced paren. The file parsed, the namespace loaded, the runner ran
+what was left and printed `0 failures` — the suite total went up, just by
+less than it should have. So every `(deftest` at the start of a line in a
+test file must now correspond to a registered test var, and a mismatch exits
+**2**: could-not-measure is neither a pass nor a failure. The JVM-only
+`seal_jvm_test.cljc` is excluded by name with its reason, and the runner
+refuses if that exclusion ever outlives its subject.
 
 `../security/src` is on the path for `kotoba.security.crypto-policy`: the
 provider qualification is judged by that evaluator rather than by a copy of
