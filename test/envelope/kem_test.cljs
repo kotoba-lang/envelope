@@ -161,3 +161,107 @@
   (is (not (m/valid? (assoc (m/envelope "drv:a" {:chunks 1}) :envelope/kem :rsa))))
   (is (m/hybrid? (assoc (m/envelope "drv:a" {:chunks 1}) :envelope/kem m/hybrid-kem)))
   (is (not (m/hybrid? (m/envelope "drv:a" {:chunks 1})))))
+
+;; ── the explicit-AAD hybrid primitive ────────────────────────────────────
+;;
+;; `wrap-for-hybrid` derives its AAD from the envelope and recipient id.
+;; kotobase's recipient-bound disclosure cannot: what binds a wrapped data
+;; key there is `binding(grant)`, a CID this repo has no way to compute. So
+;; the hybrid primitive takes the AAD, exactly as `wrap-bytes` already does
+;; for the classical one — and these tests are here to keep the property
+;; that made sharing the classical primitive safe: the AAD, not the call
+;; site, is what stops a wrap being transplanted.
+
+(defn- fails
+  "Resolves true when `p` rejects. Written out rather than assumed: a test
+  that awaits a rejection and forgets to assert it passes silently."
+  [p]
+  (-> (js/Promise.resolve p) (.then (fn [_] false)) (.catch (fn [_] true))))
+
+(deftest hybrid-wrap-bytes-round-trips-under-an-explicit-aad
+  (async done
+    (let [r (hybrid-recipient)
+          secret (js/Uint8Array.from #js [1 2 3 4 5 6 7 8])
+          aad "kotobase/disclosure|bafy...binding"]
+      (-> (seal/wrap-bytes-hybrid secret r aad)
+          (.then (fn [w]
+                   (is (= m/hybrid-kem (:wrap/kem w)))
+                   (is (not= (seal/b64url secret) (:wrap/wrapped w)))
+                   (is (= 1088 (.-length (seal/unb64url (:wrap/pq-ct w)))))
+                   (seal/unwrap-bytes-hybrid w {:priv (:priv r) :pq-priv (:pq-priv r)} aad)))
+          (.then (fn [opened]
+                   (is (bytes= secret opened))
+                   (done)))
+          (.catch (fn [e] (is false (str e)) (done)))))))
+
+(deftest a-hybrid-wrap-does-not-open-under-another-aad
+  (async done
+    (let [r (hybrid-recipient)
+          secret (js/Uint8Array.from #js [7 7 7 7])
+          aad "binding:a"]
+      (-> (seal/wrap-bytes-hybrid secret r aad)
+          (.then (fn [w]
+                   (fails (seal/unwrap-bytes-hybrid
+                           w {:priv (:priv r) :pq-priv (:pq-priv r)} "binding:b"))))
+          (.then (fn [rejected]
+                   (testing "one character of the binding is the whole authorisation"
+                     (is (true? rejected)))
+                   (done)))
+          (.catch (fn [e] (is false (str e)) (done)))))))
+
+(deftest a-hybrid-wrap-does-not-open-for-another-recipient
+  (async done
+    (let [alice (hybrid-recipient)
+          bob (hybrid-recipient)
+          secret (js/Uint8Array.from #js [5 5 5 5])]
+      (-> (seal/wrap-bytes-hybrid secret alice "aad")
+          (.then (fn [w]
+                   (js/Promise.all
+                    #js [(fails (seal/unwrap-bytes-hybrid
+                                 w {:priv (:priv bob) :pq-priv (:pq-priv bob)} "aad"))
+                         (fails (seal/unwrap-bytes-hybrid
+                                 w {:priv (:priv bob) :pq-priv (:pq-priv alice)} "aad"))
+                         (fails (seal/unwrap-bytes-hybrid
+                                 w {:priv (:priv alice) :pq-priv (:pq-priv bob)} "aad"))])))
+          (.then (fn [[neither classical-wrong pq-wrong]]
+                   (is (true? neither))
+                   (testing "and either half alone being wrong is enough"
+                     (is (true? classical-wrong))
+                     (is (true? pq-wrong)))
+                   (done)))
+          (.catch (fn [e] (is false (str e)) (done)))))))
+
+(deftest neither-construction-will-open-the-other-one
+  (async done
+    (let [r (hybrid-recipient)
+          secret (js/Uint8Array.from #js [3 3 3 3])]
+      (-> (js/Promise.all
+           #js [(seal/wrap-bytes-hybrid secret r "aad")
+                (seal/wrap-bytes secret (:pub r) "aad")])
+          (.then (fn [[hybrid classical]]
+                   (js/Promise.all
+                    #js [(fails (seal/unwrap-bytes hybrid (:priv r) "aad"))
+                         (fails (seal/unwrap-bytes-hybrid
+                                 classical {:priv (:priv r) :pq-priv (:pq-priv r)} "aad"))])))
+          (.then (fn [[hybrid-opened-classically classical-opened-as-hybrid]]
+                   (testing "a hybrid wrap refused by the classical opener — the downgrade
+                             the hybrid exists to prevent is not reachable by mistake"
+                     (is (true? hybrid-opened-classically)))
+                   (testing "and the hybrid opener will not accept a classical wrap either"
+                     (is (true? classical-opened-as-hybrid)))
+                   (done)))
+          (.catch (fn [e] (is false (str e)) (done)))))))
+
+(deftest a-substituted-encapsulation-does-not-open-an-explicit-aad-wrap
+  (async done
+    (let [r (hybrid-recipient)
+          secret (js/Uint8Array.from #js [8 8 8 8])]
+      (-> (js/Promise.all
+           #js [(seal/wrap-bytes-hybrid secret r "aad")
+                (seal/wrap-bytes-hybrid secret r "aad")])
+          (.then (fn [[a b]]
+                   (fails (seal/unwrap-bytes-hybrid
+                           (assoc a :wrap/pq-ct (:wrap/pq-ct b))
+                           {:priv (:priv r) :pq-priv (:pq-priv r)} "aad"))))
+          (.then (fn [rejected] (is (true? rejected)) (done)))
+          (.catch (fn [e] (is false (str e)) (done)))))))

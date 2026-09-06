@@ -1,7 +1,12 @@
 ;; nbb test runner (ADR-2607173000: nbb is the script host; no bb).
 ;;
 ;;   npm install                       # @noble/curves, via org-signal
-;;   nbb --classpath "src:test:../org-signal/src" scripts/run-tests.cljs
+;;   nbb --classpath "src:test:../org-signal/src:../security/src" \
+;;       scripts/run-tests.cljs
+;;
+;; ../security/src is on the path for kotoba.security.crypto-policy: the
+;; post-quantum provider qualification is judged by THAT evaluator, not by a
+;; copy of its rules living here.
 ;;
 ;; cljs.test does not set a process exit code on its own, so a failing
 ;; suite would otherwise exit 0 and pass CI.
@@ -11,10 +16,12 @@
             [envelope.model-test]
             [envelope.projection-test]
             [envelope.seal-test]
-            [envelope.passkey-test]))
+            [envelope.passkey-test]
+            [envelope.qualify-test]))
 
 (defmethod t/report [::t/default :end-run-tests] [m]
   (when-not (t/successful? m)
     (js/process.exit 1)))
 
-(t/run-tests 'envelope.kem-test 'envelope.model-test 'envelope.projection-test 'envelope.seal-test 'envelope.passkey-test)
+(t/run-tests 'envelope.kem-test 'envelope.model-test 'envelope.projection-test
+             'envelope.seal-test 'envelope.passkey-test 'envelope.qualify-test)
