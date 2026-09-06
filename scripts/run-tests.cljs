@@ -17,11 +17,13 @@
             [envelope.projection-test]
             [envelope.seal-test]
             [envelope.passkey-test]
-            [envelope.qualify-test]))
+            [envelope.qualify-test]
+            [envelope.sealed-key-test]))
 
 (defmethod t/report [::t/default :end-run-tests] [m]
   (when-not (t/successful? m)
     (js/process.exit 1)))
 
 (t/run-tests 'envelope.kem-test 'envelope.model-test 'envelope.projection-test
-             'envelope.seal-test 'envelope.passkey-test 'envelope.qualify-test)
+             'envelope.seal-test 'envelope.passkey-test 'envelope.qualify-test
+             'envelope.sealed-key-test)

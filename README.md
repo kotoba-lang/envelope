@@ -197,6 +197,16 @@ a second hybrid wrap written to get a different AAD in is the drift
 `wrap-bytes` was factored out to prevent. Which construction opens a wrap is
 read off the wrap: neither opener will accept the other's output.
 
+`envelope.sealed-key` frames one such wrap as one byte string — version,
+ephemeral public key, ML-KEM ciphertext, IV, AEAD output — so a protocol
+that has to *put* the wrap somewhere has an ordering both ends agree on
+before either has done any crypto. Both ends live here on purpose: if the
+key service and the query client each wrote their own framing, the first
+disagreement between them would surface as an AEAD failure, which is what a
+forged wrap looks like too. The recipient's own public keys are not carried;
+they enter the KEM transcript instead, so the binding is cryptographic
+rather than a field to compare.
+
 ## Test
 
 ```sh
@@ -205,7 +215,7 @@ nbb --classpath "src:test:../org-signal/src:../security/src" \
     scripts/run-tests.cljs
 ```
 
-59 tests / 163 assertions (measured 2026-09-06), all against real Web
+66 tests / 179 assertions (measured 2026-09-06), all against real Web
 Crypto, real X25519 and real ML-KEM-768 — no fake ciphers. The negative
 cases (wrong key, flipped bit, reordered chunks, truncation, relocated
 chunk, pasted wrap, substituted encapsulation, wrong AAD, either KEM half
