@@ -282,6 +282,19 @@ test file must now correspond to a registered test var, and a mismatch exits
 `seal_jvm_test.cljc` is excluded by name with its reason, and the runner
 refuses if that exclusion ever outlives its subject.
 
-`../security/src` is on the path for `kotoba.security.crypto-policy`: the
-provider qualification is judged by that evaluator rather than by a copy of
-its rules living here.
+`../security/src` is on the path for `kotoba.security.crypto-policy` and
+`kotoba.security.key-status`: the provider qualification is judged by that
+evaluator, and the key statuses a store may unlock come from that vocabulary,
+rather than by copies of either living here. It is declared in `deps.edn`
+under the `:test` alias so the fleet gate builds the same classpath from the
+same pins.
+
+The npm packages are `dependencies`, not `devDependencies`, and that
+distinction is load-bearing rather than cosmetic: `src/envelope/kem.cljs` and
+`src/envelope/qualify.cljs` import `@noble/post-quantum` directly, so it is a
+runtime dependency of those namespaces. The fleet gate runs `npm install
+--omit=dev`, which — measured 2026-09-06 — installs nothing, **exits 0**, and
+leaves the suite to die on `Cannot find module`. The gate script has a
+function devoted to catching exactly that (`NPM-DEPS 0/0 present, 3
+devDependencies omitted by --omit=dev`), which is how this was found before
+the gate was registered rather than after.
