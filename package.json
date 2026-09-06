@@ -5,9 +5,10 @@
   "devDependencies": {
     "@noble/curves": "^1.9.0",
     "@noble/hashes": "^1.8.0",
-    "@noble/post-quantum": "^0.5.0"
+    "@noble/post-quantum": "0.5.4"
   },
   "scripts": {
-    "test": "nbb --classpath \"src:test:../org-signal/src\" scripts/run-tests.cljs"
+    "test": "nbb --classpath \"src:test:../org-signal/src:../security/src\" scripts/run-tests.cljs",
+    "qualify:ml-kem": "nbb --classpath \"src:test:../org-signal/src:../security/src\" scripts/qualify-mlkem.cljs"
   }
 }

@@ -150,14 +150,67 @@ produce one key.
 - **No chunking policy.** `chunk-count` says how many chunks a length makes;
   actually splitting, uploading and reassembling belongs to the Drive client.
 
+## Qualifying the ML-KEM module
+
+`kotoba.security.crypto-policy/evaluate-pq-provider` decides whether a
+post-quantum provider counts, and it will not infer that from an algorithm
+label or a version string: it wants a module digest it can bind to, known
+answers, encapsulation and decapsulation shown separately, invalid
+ciphertext rejected, and a module load that fails closed.
+
+```sh
+npm run qualify:ml-kem
+```
+
+`envelope.qualify` produces that evidence by running the module, and
+produces none of it when it cannot run — an evidence map with fields
+missing is refused by that evaluator, which is the point.
+
+- The **known answers are not ours**. `test/vectors/ml-kem-768-known-answers.edn`
+  is extracted from `kotoba-lang/security`, which generated them with
+  BouncyCastle 1.81 from a seeded DRBG. A module checked against its own
+  output agrees always; agreeing with a different implementation is the only
+  result that means anything. They are copied rather than read across the
+  checkout because a test whose input lives in a sibling repo reports a pass
+  when the sibling is absent — `:source/sha256` is what makes the copy
+  answerable.
+- **Encapsulation has no known answer** — ML-KEM encapsulation is randomised.
+  What is shown instead is that this module's encapsulation opens under the
+  decapsulation key another implementation made.
+- **The module alone cannot reject a corrupted ciphertext.** ML-KEM's
+  implicit rejection returns a *different* shared secret rather than an
+  error, so rejection is measured one layer up, where it actually happens:
+  corrupt the encapsulation inside a real hybrid wrap and require the AEAD
+  to refuse.
+- `@noble/post-quantum` is pinned to an exact version rather than a range.
+  A range makes the deployed provider unmeasured, and the digest binds to a
+  module, not to a version. What the digest does **not** cover is
+  `@noble/hashes` and `@noble/curves`, which `ml-kem.js` imports; those are
+  covered only by the known-answer test, which cannot pass with a broken
+  SHAKE.
+
+`wrap-bytes-hybrid` / `unwrap-bytes-hybrid` are the hybrid siblings of
+`wrap-bytes` / `unwrap-bytes`: same construction as `wrap-for-hybrid`, with
+the AAD as a parameter. kotobase's recipient-bound disclosure
+(ADR-2609061400) binds `binding(grant)`, a CID this repo cannot compute, and
+a second hybrid wrap written to get a different AAD in is the drift
+`wrap-bytes` was factored out to prevent. Which construction opens a wrap is
+read off the wrap: neither opener will accept the other's output.
+
 ## Test
 
 ```sh
 npm install
-nbb --classpath "src:test:../org-signal/src" scripts/run-tests.cljs
+nbb --classpath "src:test:../org-signal/src:../security/src" \
+    scripts/run-tests.cljs
 ```
 
-39 tests / 110 assertions, all against real Web Crypto, real X25519 and
-real ML-KEM-768 — no fake ciphers. The negative cases (wrong key, flipped bit, reordered chunks,
-truncation, relocated chunk, pasted wrap) are the point; the round trip is
-the easy part.
+59 tests / 163 assertions (measured 2026-09-06), all against real Web
+Crypto, real X25519 and real ML-KEM-768 — no fake ciphers. The negative
+cases (wrong key, flipped bit, reordered chunks, truncation, relocated
+chunk, pasted wrap, substituted encapsulation, wrong AAD, either KEM half
+alone) are the point; the round trip is the easy part.
+
+`../security/src` is on the path for `kotoba.security.crypto-policy`: the
+provider qualification is judged by that evaluator rather than by a copy of
+its rules living here.

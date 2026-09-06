@@ -143,11 +143,81 @@
   "Inverse of `wrap-bytes`. -> Promise<Uint8Array>. Rejects if the wrap was
   tampered with, or if `aad` is not byte-identical to the one it was sealed
   under — which is what makes a wrap non-transplantable."
-  [{:keys [:wrap/pub :wrap/ephemeral-pub :wrap/iv :wrap/wrapped]} priv aad]
-  (let [priv (if (string? priv) (unb64url priv) priv)
+  [{:keys [:wrap/kem :wrap/pub :wrap/ephemeral-pub :wrap/iv :wrap/wrapped]} priv aad]
+  (if (some? kem)
+    ;; Rejected, not thrown. This file's contract is that every function
+    ;; returns a Promise, and a host that only attaches `.catch` would miss
+    ;; a synchronous throw entirely -- the refusal would crash the caller
+    ;; instead of failing closed, which is the opposite of what it is for.
+    (js/Promise.reject
+     (ex-info "wrap declares a KEM; refusing to open it classically"
+              {:wrap/kem kem}))
+    (let [priv (if (string? priv) (unb64url priv) priv)
         eph-pub (unb64url ephemeral-pub)
-        shared (x25519/dh priv eph-pub)]
-    (-> (wrap-key-from-dh shared eph-pub (unb64url pub))
+          shared (x25519/dh priv eph-pub)]
+      (-> (wrap-key-from-dh shared eph-pub (unb64url pub))
+          (.then (fn [wk] (gcm-decrypt wk (unb64url iv) (unb64url wrapped)
+                                       (utf8 aad))))))))
+
+(defn wrap-bytes-hybrid
+  "Wrap arbitrary `plaintext` bytes to a HYBRID recipient — one that
+  publishes both an X25519 public key and an ML-KEM-768 public key — under
+  an explicit `aad` string. -> Promise<wrap map>.
+
+  The post-quantum sibling of `wrap-bytes`, and a parameter-taking AAD for
+  the same reason that one takes it: this is the wrap primitive for the
+  whole workspace, not just for envelopes. `wrap-for-hybrid` derives the AAD
+  from the envelope and recipient id; kotobase's recipient-bound disclosure
+  binds `binding(grant)` instead, which is a CID of the grant and not
+  something this repo can compute. Both need the SAME hybrid construction,
+  and a second one written to get a different AAD in is exactly the drift
+  `wrap-bytes` was factored out to avoid.
+
+  The returned map carries `:wrap/kem`. `unwrap-bytes` refuses a map that
+  carries it and `unwrap-bytes-hybrid` refuses one that does not: which
+  construction opens a wrap is read off the wrap, never negotiated."
+  [^js plaintext {:keys [pub pq-pub]} aad]
+  (let [recipient-pub (if (string? pub) (unb64url pub) pub)
+        recipient-pq (if (string? pq-pub) (unb64url pq-pub) pq-pub)
+        iv (random-bytes m/nonce-bytes)]
+    (-> (kem/encapsulate {:pub recipient-pub :pq-pub recipient-pq})
+        (.then (fn [{:keys [wrap-key ephemeral-pub pq-ct]}]
+                 (-> (gcm-encrypt wrap-key iv plaintext (utf8 aad))
+                     (.then (fn [wrapped]
+                              {:wrap/kem m/hybrid-kem
+                               :wrap/pub (b64url recipient-pub)
+                               :wrap/pq-pub (b64url recipient-pq)
+                               :wrap/ephemeral-pub (b64url ephemeral-pub)
+                               :wrap/pq-ct (b64url pq-ct)
+                               :wrap/iv (b64url iv)
+                               :wrap/wrapped (b64url wrapped)}))))))))
+
+(defn unwrap-bytes-hybrid
+  "Inverse of `wrap-bytes-hybrid`. -> Promise<Uint8Array>.
+
+  Rejects if either KEM half is wrong, if the encapsulation was substituted,
+  if the wrap was tampered with, or if `aad` is not byte-identical to the
+  one it was sealed under. There is no classical fallback: a wrap that does
+  not declare the hybrid KEM is refused rather than opened the other way,
+  because a fallback is the downgrade the hybrid exists to prevent."
+  [{:keys [:wrap/kem :wrap/pub :wrap/ephemeral-pub :wrap/pq-ct
+           :wrap/iv :wrap/wrapped]}
+   {:keys [priv pq-priv]} aad]
+  (cond
+    (not= m/hybrid-kem kem)
+    (js/Promise.reject (ex-info "not a hybrid wrap; refusing to open it as one"
+                                {:wrap/kem kem :expected m/hybrid-kem}))
+
+    (nil? pq-priv)
+    (js/Promise.reject (ex-info "hybrid wrap needs the ML-KEM private key"
+                                {:wrap/kem kem}))
+
+    :else
+    (-> (kem/decapsulate {:priv (if (string? priv) (unb64url priv) priv)
+                          :pq-priv pq-priv}
+                         {:ephemeral-pub (unb64url ephemeral-pub)
+                          :pq-ct (unb64url pq-ct)
+                          :recipient-pub (unb64url pub)})
         (.then (fn [wk] (gcm-decrypt wk (unb64url iv) (unb64url wrapped)
                                      (utf8 aad)))))))
 
