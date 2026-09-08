@@ -34,7 +34,7 @@
 ;; suite would otherwise exit 0 and pass CI.
 (ns run-tests
   (:require [cljs.test :as t]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             ["fs" :as fs]
             ["path" :as path]))
 

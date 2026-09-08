@@ -7,7 +7,7 @@
   produces is accepted by THAT function, and that each way of producing
   weaker evidence is refused by it."
   (:require ["node:crypto" :as node-crypto]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             ["node:fs" :as fs]
             ["node:module" :refer [createRequire]]
             ["node:path" :as path]
