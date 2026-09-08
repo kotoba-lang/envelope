@@ -33,7 +33,7 @@
                                :recipient/pq-ct  \"base64url…\"}]} ; 1088 B
 
   ADR-2607263000 D3/D4/D5."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (def version 1)
 
