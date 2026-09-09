@@ -9,7 +9,7 @@
          :git/sha "511e4b47de5d17945aa02815725703e8eb52bdef"}}
  :aliases {:test {:extra-paths ["test"]
                   :extra-deps {io.github.cognitect-labs/test-runner
-                               {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                               {:git/tag "v0.5.1" :git/sha "dfb30dd6605cb6c0efc275e1df1736f6e90d4d73"}
                                ;; The tests -- not src -- read this repo's
                                ;; judgements from their owner rather than from
                                ;; copies: kotoba.security.crypto-policy decides
