@@ -2,7 +2,7 @@
 ;; kotoba.security.crypto-policy qualifies it.
 ;;
 ;;   nbb --classpath "src:test:../org-signal/src:../security/src" \
-;;       scripts/qualify-mlkem.cljs
+;;       scripts/qualify-mlkem.cljk
 ;;
 ;; Prints the evidence and the evaluator's verdict, and exits non-zero when
 ;; the verdict is not qualified. Run it when the pin stops matching, before

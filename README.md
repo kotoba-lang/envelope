@@ -260,7 +260,7 @@ arrive differently.
 ```sh
 npm install
 nbb --classpath "src:test:../org-signal/src:../security/src" \
-    scripts/run-tests.cljs
+    scripts/run-tests.cljk
 ```
 
 78 tests / 203 assertions (measured 2026-09-06), all against real Web
@@ -290,8 +290,8 @@ under the `:test` alias so the fleet gate builds the same classpath from the
 same pins.
 
 The npm packages are `dependencies`, not `devDependencies`, and that
-distinction is load-bearing rather than cosmetic: `src/envelope/kem.cljs` and
-`src/envelope/qualify.cljs` import `@noble/post-quantum` directly, so it is a
+distinction is load-bearing rather than cosmetic: `src/envelope/kem.cljk` and
+`src/envelope/qualify.cljk` import `@noble/post-quantum` directly, so it is a
 runtime dependency of those namespaces. The fleet gate runs `npm install
 --omit=dev`, which — measured 2026-09-06 — installs nothing, **exits 0**, and
 leaves the suite to die on `Cannot find module`. The gate script has a
