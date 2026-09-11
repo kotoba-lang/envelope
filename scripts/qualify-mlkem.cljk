@@ -1,7 +1,7 @@
 ;; What the ML-KEM-768 module installed here actually does, and whether
 ;; kotoba.security.crypto-policy qualifies it.
 ;;
-;;   nbb --classpath "src:test:../org-signal/src:../security/src" \
+;;   kbb --backend sci --classpath "src:test:../org-signal/src:../security/src" \
 ;;       scripts/qualify-mlkem.cljk
 ;;
 ;; Prints the evidence and the evaluator's verdict, and exits non-zero when

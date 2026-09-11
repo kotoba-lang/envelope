@@ -9,7 +9,7 @@
     "@noble/post-quantum": "0.5.4"
   },
   "scripts": {
-    "test": "nbb --classpath \"src:test:../org-signal/src:../security/src\" scripts/run-tests.cljk",
-    "qualify:ml-kem": "nbb --classpath \"src:test:../org-signal/src:../security/src\" scripts/qualify-mlkem.cljk"
+    "test": "kbb --backend sci --classpath \"src:test:../org-signal/src:../security/src\" scripts/run-tests.cljk",
+    "qualify:ml-kem": "kbb --backend sci --classpath \"src:test:../org-signal/src:../security/src\" scripts/qualify-mlkem.cljk"
   }
 }
