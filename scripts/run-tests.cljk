@@ -2,7 +2,7 @@
 ;;
 ;;   npm install                       # @noble/curves, via org-signal
 ;;   nbb --classpath "src:test:../org-signal/src:../security/src" \
-;;       scripts/run-tests.cljs
+;;       scripts/run-tests.cljk
 ;;
 ;; ../security/src is on the path for kotoba.security.crypto-policy and
 ;; kotoba.security.key-status: the post-quantum provider qualification is
@@ -53,7 +53,7 @@
   runs it. It is named here rather than left out of a hand-written list,
   because an exclusion nobody can see is indistinguishable from a file
   nobody remembered."
-  #{"test/envelope/seal_jvm_test.cljc"})
+  #{"test/envelope/seal_jvm_test.cljk"})
 
 (def all-test-files
   (->> (walk "test") (filter #(re-find #"_test\.clj[cs]$" %)) sort vec))
