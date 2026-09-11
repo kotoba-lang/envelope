@@ -1,7 +1,7 @@
 ;; nbb test runner (ADR-2607173000: nbb is the script host; no bb).
 ;;
 ;;   npm install                       # @noble/curves, via org-signal
-;;   nbb --classpath "src:test:../org-signal/src:../security/src" \
+;;   kbb --backend sci --classpath "src:test:../org-signal/src:../security/src" \
 ;;       scripts/run-tests.cljk
 ;;
 ;; ../security/src is on the path for kotoba.security.crypto-policy and
@@ -49,7 +49,7 @@
 
   `envelope.seal-jvm` is the JVM sibling of `envelope.seal` -- the same wire
   format through JCA instead of Web Crypto -- so its test is `:clj` and does
-  not load under nbb. That is an exclusion, not a subset: `clojure -M:test`
+  not load under nbb. That is an exclusion, not a subset: `kbb -M:test`
   runs it. It is named here rather than left out of a hand-written list,
   because an exclusion nobody can see is indistinguishable from a file
   nobody remembered."

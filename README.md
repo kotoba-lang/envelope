@@ -259,7 +259,7 @@ arrive differently.
 
 ```sh
 npm install
-nbb --classpath "src:test:../org-signal/src:../security/src" \
+kbb --backend sci --classpath "src:test:../org-signal/src:../security/src" \
     scripts/run-tests.cljk
 ```
 
