@@ -1,10 +1,10 @@
 (ns envelope.seal-jvm-test
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.bytes :as kbytes] [kotoba.test :refer [deftest is testing]]
             [envelope.model :as m]
             [envelope.seal-jvm :as seal]))
 
 (defn- utf8 [s] (seal/utf8 s))
-(defn- text [^bytes bs] (String. bs java.nio.charset.StandardCharsets/UTF_8))
+(defn- text [^bytes bs] (kbytes/utf8-string bs))
 
 (defn- recipient [id]
   (merge {:id id} (seal/generate-recipient)))
