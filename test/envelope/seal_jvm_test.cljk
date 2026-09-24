@@ -1,5 +1,5 @@
 (ns envelope.seal-jvm-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [envelope.model :as m]
             [envelope.seal-jvm :as seal]))
 
