@@ -1,5 +1,5 @@
 (ns envelope.model-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [envelope.model :as m]))
 
 (deftest a-nonce-is-never-reused-under-one-key
