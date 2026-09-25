@@ -3,12 +3,11 @@
   `envelope.seal`. Policy and serialized fields remain in `envelope.model`;
   this namespace only supplies JCA AES-GCM and the workspace-owned
   `kotoba-lang/org-signal` X25519/HKDF implementation."
-  (:require [envelope.model :as m]
+  (:require [kotoba.bytes :as kbytes] [envelope.model :as m]
             #?(:clj [kotoba.signal.hkdf :as hkdf])
             #?(:clj [kotoba.signal.x25519 :as x25519]))
-  #?(:clj (:import (java.nio.charset StandardCharsets)
+  #?(:clj (:import
                    (java.security SecureRandom)
-                   (java.util Base64)
                    (javax.crypto Cipher)
                    (javax.crypto.spec GCMParameterSpec SecretKeySpec))))
 
@@ -19,13 +18,13 @@
      (def content-key-bytes 32)
 
      (defn utf8 ^bytes [s]
-       (.getBytes ^String s StandardCharsets/UTF_8))
+       (kbytes/utf8-bytes ^String s))
 
      (defn b64url [^bytes bs]
-       (.encodeToString (.withoutPadding (Base64/getUrlEncoder)) bs))
+       (kbytes/base64url-encode bs {:pad? false}))
 
      (defn unb64url ^bytes [s]
-       (.decode (Base64/getUrlDecoder) ^String s))
+       (kbytes/base64url-decode-bytes ^String s))
 
      (defn- random-bytes ^bytes [n]
        (let [out (byte-array n)]
