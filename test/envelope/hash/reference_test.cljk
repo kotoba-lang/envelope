@@ -1,0 +1,50 @@
+(ns envelope.hash.reference-test
+  "`envelope.hash.reference` (SHA-256 via `org-nist-sha2`) agrees byte-for-byte
+  with `@noble/hashes` SHA-256, with FIPS 180-4's own known-answer test, and
+  with `node:crypto` (the SHA-256 this repo's `envelope.qualify-test` actually
+  computes for the ML-KEM module digest). Envelope's production code does not
+  import `@noble/hashes` directly -- see `envelope.hash.reference`'s docstring
+  for what was checked; this test still imports `@noble/hashes`, as the oracle
+  this seam is measured against.
+
+  Run from a west checkout (sibling `org-nist-sha2`):
+    npm run test:reference-hashes"
+  (:require [cljs.test :refer [deftest is testing run-tests]]
+            [envelope.hash.reference :as reference]
+            ["@noble/hashes/sha2.js" :refer [sha256]]
+            ["node:crypto" :as node-crypto]))
+
+(defn- bytes= [^js a ^js b]
+  (and (some? a) (some? b)
+       (= (.-length a) (.-length b))
+       (every? #(= (aget a %) (aget b %)) (range (.-length a)))))
+
+(deftest reference-sha256-matches-noble
+  (testing "empty input"
+    (let [empty (js/Uint8Array. 0)]
+      (is (bytes= (sha256 empty)
+                  (reference/sha256-bytes empty)))))
+  (testing "utf8 string"
+    (is (bytes= (sha256 (.encode (js/TextEncoder.) "envelope hash reference"))
+                (reference/sha256-utf8 "envelope hash reference"))))
+  (testing "random 128-byte block"
+    (let [bs (js/crypto.getRandomValues (js/Uint8Array. 128))]
+      (is (bytes= (sha256 bs)
+                  (reference/sha256-bytes bs))))))
+
+(deftest reference-sha256-matches-fips-180-4-known-answer
+  (testing "SHA256(\"abc\") -- FIPS 180-4 Appendix B.1"
+    (is (= "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+           (reference/sha256-hex (.encode (js/TextEncoder.) "abc")))))
+  (testing "the empty string -- NIST CAVP known answer"
+    (is (= "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+           (reference/sha256-hex (js/Uint8Array. 0))))))
+
+(deftest reference-sha256-matches-node-crypto
+  (testing "the digest envelope.qualify-test/measure-module-digest actually computes"
+    (let [bs (js/crypto.getRandomValues (js/Uint8Array. 256))
+          node-hex (-> (.createHash node-crypto "sha256") (.update bs) (.digest "hex"))]
+      (is (= node-hex (reference/sha256-hex bs))))))
+
+(defn -main [& _]
+  (run-tests 'envelope.hash.reference-test))

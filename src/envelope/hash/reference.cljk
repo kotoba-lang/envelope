@@ -1,0 +1,64 @@
+(ns envelope.hash.reference
+  "SHA-256 through first-party `sha2.core` (`kotoba-lang/org-nist-sha2`), for
+  `@noble/hashes` host substitution (ADR-2608301100, host-provider ladder step
+  3). Production paths are UNCHANGED by this namespace.
+
+  Investigation (2026-09-25): envelope's own `src/` and `test/` contain no
+  direct `(:require [\"@noble/hashes...\"])` import anywhere -- every `.cljk`
+  file under both trees was grepped for `noble`; the only hits are prose in
+  doc comments (`src/envelope/qualify.cljk`, `test/envelope/qualify_test.cljk`)
+  saying what `@noble/hashes` is NOT covered by, never an import. `@noble/hashes`
+  is a runtime dependency in `package.json` only because `@noble/post-quantum`'s
+  `ml_kem768` (imported directly by `envelope.kem` / `envelope.qualify`) uses it
+  internally for SHA3-256/SHAKE256 (FIPS 202/203) -- code this repo never
+  reaches through a subpath import of its own, and code `org-nist-sha2` does
+  not implement (it is SHA-2 family only: sha224/256/384/512 + HMAC, see its
+  ns docstring), so SHA3/SHAKE is out of scope here and stays on
+  `@noble/hashes` untouched. That matches the dependency-substitution ledger
+  (sha2/hmac -> org-nist-sha2) and `org-nist-sha2`'s own
+  `hash.subpath-dispatch/dispatch-subpath`, which maps unknown subpaths
+  (sha3/shake among them) to `target-unknown` -- there is no first-party
+  target for them yet.
+
+  `kotoba.signal.hkdf` (via `kotoba-lang/org-signal`, this repo's HKDF/HMAC
+  path per `envelope.seal` / `envelope.kem`) also does not touch
+  `@noble/hashes` -- it already runs on Web Crypto (`js/crypto.subtle`,
+  HMAC/SHA-256). That is a separate coordinate (`org-signal`, not `envelope`)
+  and is untouched here.
+
+  The one real SHA-256 computation this repo performs itself is
+  `envelope.qualify-test/measure-module-digest` (checks the installed ML-KEM
+  module's files against `envelope.qualify/pinned-module-digest`). It runs
+  through `node:crypto`, a third coordinate, also untouched -- but it is the
+  same FIPS 180-4 SHA-256 this namespace wraps, so the parity test below
+  checks this seam against BOTH `@noble/hashes` (what the task asks: the
+  coordinate being substituted) and `node:crypto` (what this repo actually
+  calls), to show the seam is ready wherever a first-party SHA-256 is wanted
+  here, not just abstractly correct."
+  (:require [sha2.core :as sha2]))
+
+(defn- u8-vec [^js u8] (vec (js/Array.from u8)))
+
+(defn- vec-u8 [v] (js/Uint8Array.from (clj->js v)))
+
+(defn sha256-bytes
+  "bytes -> 32 digest bytes via `org-nist-sha2`."
+  [bs]
+  (vec-u8 (sha2/sha256 (u8-vec bs))))
+
+(defn sha256-utf8
+  [s]
+  (sha256-bytes (.encode (js/TextEncoder.) s)))
+
+(defn sha256-hex
+  "bytes -> lowercase hex digest via `org-nist-sha2`."
+  [bs]
+  (sha2/sha256-hex (u8-vec bs)))
+
+(defn hmac-sha256-bytes
+  "HMAC-SHA-256(key, message) -> 32 bytes via `org-nist-sha2`. Not currently
+  called by any envelope production path (see docstring above); included for
+  the same reason `sha2.core` exports it -- `@noble/hashes`' `hmac` subpath
+  also maps to `org-nist-sha2` on the ledger."
+  [key message]
+  (vec-u8 (sha2/hmac-sha256 (u8-vec key) (u8-vec message))))
