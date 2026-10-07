@@ -27,11 +27,26 @@ the key; it never re-encrypts the object.**
 | `envelope.model` | portable `.cljc` | the shape and every decision that needs no crypto: nonce derivation, AAD, recipients, revoke, link grants |
 | `envelope.seal` | ClojureScript, `Promise`-returning | the bytes: AES-256-GCM, X25519 + HKDF-SHA256 |
 | `envelope.seal-jvm` | JVM, synchronous `.cljc` | the identical wire format via JCA and `kotoba-lang/org-signal` |
+| `envelope.seal-sync` | ClojureScript on a Node-compatible host (kbb/nbb), synchronous | the identical wire format, classical **and** hybrid, for callers that cannot take a Promise |
 
 `seal` is `.cljs` rather than `.cljc` because Web Crypto has no synchronous
 API — the same reason `kotoba-lang/org-signal` keeps sibling JVM and CLJS
 ratchets instead of one reader-conditional file. It runs where the object
 actually is: a Cloudflare Worker and a browser.
+
+`seal-sync` is `seal-jvm`'s surface, function for function, for JVM-free
+command-line clients (kbb is nbb; `bonsai.private-repo` is the first caller),
+plus the hybrid wraps `seal-jvm` cannot open. X25519 is org-signal's and
+ML-KEM is `envelope.kem`'s — the module `envelope.qualify` measures, whose
+corrupted-ciphertext check now has to be refused by this opener too. AES-GCM,
+the HMAC under HKDF, and randomness are `node:crypto` (OpenSSL — the same
+provider Web Crypto is on Node): org-signal has no synchronous HKDF and Web
+Crypto no synchronous anything, and the portable alternatives are refused by
+rules already written down (`kotoba-lang/security` keeps AEAD/HKDF
+platform-native, and `org-nist-aes` / `org-ietf-x25519` say of themselves that
+they are not constant-time). It asserts the same fixed chunk vector as the
+other two backends, and its test seals on each backend and opens on the
+other.
 
 `seal-jvm` is the client backend for JVM desktop processes such as Cloud
 Itonami. It uses only the JDK crypto provider plus the workspace-owned
@@ -263,7 +278,8 @@ kbb --backend sci --classpath "src:test:../org-signal/src:../security/src" \
     scripts/run-tests.cljk
 ```
 
-78 tests / 203 assertions (measured 2026-09-06), all against real Web
+91 tests / 249 assertions (measured 2026-10-07; 78 / 203 before
+`envelope.seal-sync`), all against real Web
 Crypto, real X25519 and real ML-KEM-768 — no fake ciphers. The negative
 cases (wrong key, flipped bit, reordered chunks, truncation, relocated
 chunk, pasted wrap, substituted encapsulation, wrong AAD, either KEM half
