@@ -23,6 +23,7 @@
   (:require ["@noble/post-quantum/ml-kem.js" :refer [ml_kem768]]
             [envelope.kem :as kem]
             [envelope.seal :as seal]
+            [envelope.seal-sync :as seal-sync]
             [kotoba.signal.x25519 :as x25519]))
 
 (def provider-id
@@ -113,13 +114,31 @@
        false
        (catch :default _ true)))
 
+(defn- corrupt-ciphertext-rejected-sync?
+  "The same measurement through `envelope.seal-sync`, the second opener of
+  hybrid wraps. Both openers call this module through `envelope.kem`, so the
+  qualification covers both only if both refuse: a backend that is not
+  measured here would be using a provider whose evidence was taken from
+  somebody else's code path."
+  []
+  (let [r (seal-sync/generate-hybrid-recipient)
+        wrap (seal-sync/wrap-bytes-hybrid (js/Uint8Array. #js [1 2 3 4 5 6 7 8]) r "qualify/aad")
+        ct (seal-sync/unb64url (:wrap/pq-ct wrap))
+        _ (aset ct 0 (bit-xor (aget ct 0) 1))
+        corrupted (assoc wrap :wrap/pq-ct (seal-sync/b64url ct))]
+    (try (seal-sync/unwrap-bytes-hybrid corrupted r "qualify/aad")
+         false
+         (catch :default _ true))))
+
 (defn- corrupt-ciphertext-rejected
   "ML-KEM implicit rejection: a well-formed but corrupted ciphertext yields a
   DIFFERENT shared secret instead of an error, so the module alone cannot
   reject it. Rejection happens one layer up, and that is where it is
   measured: corrupt the encapsulation inside a real hybrid wrap and require
-  the AEAD to refuse. Reporting the module's silence as rejection would be
-  reporting a check that never ran."
+  the AEAD to refuse -- in envelope.seal AND in envelope.seal-sync, since
+  either one opening it would be the module's silence passing as rejection.
+  Reporting the module's silence as rejection would be reporting a check
+  that never ran."
   []
   (let [x (x25519/generate-keypair)
         pq (kem/generate-keypair)
@@ -133,7 +152,8 @@
                    (-> (seal/unwrap-bytes-hybrid
                         corrupted {:priv (:priv x) :pq-priv (:priv pq)} "qualify/aad")
                        (.then (constantly false))
-                       (.catch (constantly true)))))))))
+                       (.catch (constantly true))
+                       (.then #(and % (corrupt-ciphertext-rejected-sync?))))))))))
 
 ;; ── the evidence ─────────────────────────────────────────────────────────
 

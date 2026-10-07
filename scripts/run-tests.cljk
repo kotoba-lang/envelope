@@ -12,7 +12,7 @@
 ;; ## Two floors, because a runner that measured nothing must not look like
 ;; ## a runner that measured everything and found it clean
 ;;
-;; The namespaces come from `test/**/*_test.clj[cs]` on disk rather than a
+;; The namespaces come from `test/**/*_test.clj[cks]` on disk rather than a
 ;; list here. A list falls behind the suite and reports the subset as a
 ;; pass; kotoba-lang/ayatori's `ayatori.suite` documents four entry points
 ;; that each reported a different green for exactly that reason.
@@ -55,15 +55,19 @@
   nobody remembered."
   #{"test/envelope/seal_jvm_test.cljk"})
 
+;; `.cljk` is in the pattern since the 2026-09-11 rename (every file here is
+;; one now). Until 2026-10-07 the pattern was `clj[cs]`, matched nothing, and
+;; this runner refused with "no test files" -- the floor above doing its job:
+;; it exited 2 rather than reporting an empty suite as a pass.
 (def all-test-files
-  (->> (walk "test") (filter #(re-find #"_test\.clj[cs]$" %)) sort vec))
+  (->> (walk "test") (filter #(re-find #"_test\.clj[cks]$" %)) sort vec))
 
 (def test-files (vec (remove jvm-only all-test-files)))
 
 (defn- file->ns [p]
   (-> p
       (str/replace #"^test[/\\]" "")
-      (str/replace #"\.clj[cs]$" "")
+      (str/replace #"\.clj[cks]$" "")
       (str/replace #"[/\\]" ".")
       (str/replace "_" "-")
       symbol))

@@ -65,20 +65,49 @@
     (reduce (fn [off ^js a] (.set out a off) (+ off (.-length a))) 0 arrays)
     out))
 
-(defn- combine
-  "HKDF over `x25519-shared || mlkem-shared`, bound to both public keys and
-  the ML-KEM ciphertext.
+(defn combiner-input
+  "The bytes the hybrid combiner feeds HKDF: `{:ikm x25519-shared ||
+  mlkem-shared, :info combiner-info || eph-pub || recipient-pub || pq-ct}`,
+  with no salt.
 
   Binding the transcript is what stops a wrap being replayed against a
   different recipient or with a substituted encapsulation: change any of
   them and the derived key changes, so the AEAD fails to open instead of
-  opening as something plausible."
+  opening as something plausible.
+
+  Public, and separate from the HKDF call, so that `envelope.seal` (Web
+  Crypto HKDF, a Promise) and `envelope.seal-sync` (a synchronous HKDF) derive
+  the wrap key from ONE definition of the transcript. Two copies of this
+  concatenation would be two places for the order of four fields to drift,
+  and the first sign of that would be an AEAD failure -- which is what a
+  forged wrap looks like too."
   [x-shared pq-shared eph-pub recipient-pub pq-ct]
-  (hkdf/hkdf nil
-             (concat-bytes x-shared pq-shared)
-             (concat-bytes (.encode (js/TextEncoder.) combiner-info)
-                           eph-pub recipient-pub pq-ct)
-             wrap-key-bytes))
+  {:ikm (concat-bytes x-shared pq-shared)
+   :info (concat-bytes (.encode (js/TextEncoder.) combiner-info)
+                       eph-pub recipient-pub pq-ct)})
+
+(defn- combine [x-shared pq-shared eph-pub recipient-pub pq-ct]
+  (let [{:keys [ikm info]} (combiner-input x-shared pq-shared eph-pub recipient-pub pq-ct)]
+    (hkdf/hkdf nil ikm info wrap-key-bytes)))
+
+(defn encapsulate-shared
+  "Sender side, up to but not including HKDF -- every step here is
+  synchronous (X25519 and ML-KEM both are; only Web Crypto's HKDF is not).
+  -> {:x-shared :pq-shared :ephemeral-pub :pq-ct}. Fresh ephemeral X25519 and
+  a fresh ML-KEM encapsulation per call."
+  [{:keys [pub pq-pub]}]
+  (let [{eph-priv :priv eph-pub :pub} (x25519/generate-keypair)
+        enc (.encapsulate ml_kem768 pq-pub)]
+    {:x-shared (x25519/dh eph-priv pub)
+     :pq-shared (.-sharedSecret enc)
+     :ephemeral-pub eph-pub
+     :pq-ct (.-cipherText enc)}))
+
+(defn decapsulate-shared
+  "Recipient side, up to but not including HKDF. -> {:x-shared :pq-shared}."
+  [{:keys [priv pq-priv]} {:keys [ephemeral-pub pq-ct]}]
+  {:x-shared (x25519/dh priv ephemeral-pub)
+   :pq-shared (.decapsulate ml_kem768 pq-ct pq-priv)})
 
 (defn encapsulate
   "Sender side. `recipient` is `{:pub x25519-pub :pq-pub ml-kem-pub}`.
@@ -86,19 +115,14 @@
   -> Promise<{:wrap-key :ephemeral-pub :pq-ct}>. Fresh ephemeral X25519 and a
   fresh ML-KEM encapsulation per call, so two wraps of the same key to the
   same recipient share no material."
-  [{:keys [pub pq-pub]}]
-  (let [{eph-priv :priv eph-pub :pub} (x25519/generate-keypair)
-        x-shared (x25519/dh eph-priv pub)
-        enc (.encapsulate ml_kem768 pq-pub)
-        pq-ct (.-cipherText enc)
-        pq-shared (.-sharedSecret enc)]
-    (-> (combine x-shared pq-shared eph-pub pub pq-ct)
-        (.then (fn [wk] {:wrap-key wk :ephemeral-pub eph-pub :pq-ct pq-ct})))))
+  [{:keys [pub] :as recipient}]
+  (let [{:keys [x-shared pq-shared ephemeral-pub pq-ct]} (encapsulate-shared recipient)]
+    (-> (combine x-shared pq-shared ephemeral-pub pub pq-ct)
+        (.then (fn [wk] {:wrap-key wk :ephemeral-pub ephemeral-pub :pq-ct pq-ct})))))
 
 (defn decapsulate
   "Recipient side. -> Promise<wrap-key>. Rejects if either half is wrong;
   there is no partial success, which is the point of the combiner."
-  [{:keys [priv pq-priv]} {:keys [ephemeral-pub pq-ct recipient-pub]}]
-  (let [x-shared (x25519/dh priv ephemeral-pub)
-        pq-shared (.decapsulate ml_kem768 pq-ct pq-priv)]
+  [keys {:keys [ephemeral-pub pq-ct recipient-pub] :as wrap}]
+  (let [{:keys [x-shared pq-shared]} (decapsulate-shared keys wrap)]
     (combine x-shared pq-shared ephemeral-pub recipient-pub pq-ct)))
